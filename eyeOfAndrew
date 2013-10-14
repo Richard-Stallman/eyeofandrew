@@ -17,7 +17,7 @@ FILE=$HOSTNAME
 ITERS=${1:-1}
 SLEEP=${2:-10}
 
-echo "$FILE" > $FILE
+echo "$FILE-`date +%D`" > $FILE
 
 w >> $FILE
 for iter in $(seq 2 $ITERS); do
