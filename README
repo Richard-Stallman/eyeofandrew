@@ -1,0 +1,103 @@
+-------------------------------------------------------------------------------- 
+ACC
+--------------------------------------------------------------------------------
+
+NAME
+    acc - andrew control center
+
+SYNOPSIS
+    acc -c user hostfile iterations sleep eoa_path [-r] [-o alf]
+    acc [-m alf1 alf2 ...] [-s alf] [-r] [-o alf]
+
+DESCRIPTION
+
+OPTIONS
+    -c user hostfile iterations sleep eoa_path
+        PSSH into all hosts in the given hostfile as the given user, calling
+        eyeOfAndrew (found at eoa_path) for the given number of iterations
+        with the given sleep interval. Output will be stored in the file
+        specified by the -o flag or in the current directory as out.alf by
+        default.
+
+    -m alf1 alf2 ...
+        Merge the given ALFs into a sigle ALF. This file will be named as
+        specified by the -o flag or "out.alf" in the current directory by
+        default.
+
+    -s alf
+        Split the given ALF into a separate ALF for each hostname. These files
+        will be named by the convention "ALF_host.alf" where "ALF" is the name
+        of the input file and "host" is the name of each host.
+
+    -r
+        Remove temporary or source files involved in operation after output is
+        written.
+
+    -o filename
+        Name of the output file for an operation with a single output.
+
+
+
+--------------------------------------------------------------------------------
+EYEOFANDREW
+--------------------------------------------------------------------------------
+
+NAME
+    eyeOfAndrew - server-side script for acc
+
+SYNOPSIS
+    eyeOfAndrew [iterations] [sleep_interval]
+
+DESCRIPTION
+    eyeOfAndrew repeatedly calls the "w" command, storing the result to a file
+    that is unique for each hostname. Calls are separated by the specified time
+    interval, during which the script sleeps. Once the final call is made, the
+    script "cat"s the file, causing pssh to pass it to the local machine, and
+    the file on the remote server is removed.
+
+OPTIONS
+    First parameter gives the number of times data collection will be
+    performed (default is 1).
+
+    Second parameter gives the sleep interval, in seconds, between data
+    collections (default is 10).
+
+--------------------------------------------------------------------------------
+ALF FILE FORMAT
+--------------------------------------------------------------------------------
+
+OVERVIEW
+    The alf (Andrew library file) file format is used to store data captured by
+    the ACC program. An arbitrary number of captures from an arbitrary number
+    of machines can be stored in one file, and all data is stored in a plaintext
+    format.
+
+DETAILS
+    An ALF file adheres to the following guidelines.
+
+    1 All data captured from any host is stored consecutively within the file
+    
+    2 Prior to the data captured from the host $HOSTNAME and without any data
+      captured from another host between it and its corresponding data is a 
+      line reading "$HOSTNAME" (the quotes are not in the ALF)
+
+    3 Prior to the data captured at time $TIME and without any data captured at
+      another time between it and its corresponding data is a line reading
+      "$TIME" where $TIME is itself of the form "MM/DD/YYYY HH:MM:SS" using a 
+      24 hour clock and padding any value with zeros if necessary.
+
+    4 Each data line starts with a space-separated list of the following data
+      points in the given order: USER, TTY, FROM, LOGIN@, IDLE, JCPU, PCPU,
+      RUNNINGAPPLICATION.
+
+    5 Each data line ends with a (possibly empty) space-separated list of
+      arguments provided to the running application. These arguments may be
+      truncated or incomplete as w limits the number of characters for this
+      column
+
+    6 Each data line contains only one USER, TTY, etc. data point
+
+    Note that there are no limits on the number of spaces separating columns in
+    data lines. It is recommended to use spaces as necessary to align columns.
+    Note also that it is valid to enter any number of black lines at any point
+    within the file.

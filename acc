@@ -1,0 +1,219 @@
+#!/usr/bin/python3
+
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import os
+import argparse
+import string
+
+def main():
+    # Parse the command line arguments
+    parser = argparse.ArgumentParser(description="Andrew Control Center")
+    parser.add_argument("-c", nargs=5, help="Collect data")
+    parser.add_argument("-m", nargs='+', help="Merge ALFs")
+    parser.add_argument("-s", nargs=1, help="Split an ALF")
+    parser.add_argument("-r", action='store_true',
+                        help="Remove source/temp files")
+    parser.add_argument("-o", nargs=1, default=['out.alf'], 
+                        help="Set output file")
+
+    args = (parser.parse_args())
+    
+    if not args.c == None:
+        collect(args.c[0], args.c[1], args.c[2], args.c[3], args.c[4], 
+                args.o[0], args.r)
+
+    if not args.m == None:
+        merge(args.m, args.o[0], args.r)
+
+    if not args.s == None:
+        split(args.s, agrs.r)
+    
+    return 0
+
+#################################################
+# Functions for command line arguments
+#################################################
+
+def collect(user, hostfile, iters, sleep, eoaPath, outfile, removeTmp):
+    # Count the hosts to have an appropriate connection limit
+    numHosts = 0
+    hosts = open(hostfile, "r")
+    for host in hosts:
+        numHosts += 1
+    hosts.close()
+
+    # Form and run the pssh command
+    command = "pssh -l %s -h %s -o acc_tmp -A -p %d -t %d %s %s %d %d" % (
+               user, hostfile, numHosts, int(iters) * int(sleep) + 10,
+               "\"-O StrictHostKeyChecking=no\"", eoaPath, int(iters), 
+               int(sleep))
+    os.system(command)
+   
+    # Process the data into an ALF
+    database = dict()
+    for rawOutput in os.listdir('acc_tmp'):
+        database.update(loadRawPage('acc_tmp/' + rawOutput))
+    writeAlf(outfile, database)
+
+    # Remove temporary files
+    if removeTmp:
+        os.system("rm -r acc_tmp")
+    return
+
+def merge(alfList, outfile, removeSrc):
+# Merge a list of ALFs
+    database = dict()
+    for alf in alfList:
+        database.update(loadAlf(alf))
+
+    writeAlf(outfile, database)
+
+    if removeSrc:
+        for alf in alfList:
+            os.system("rm %s" % alf)
+    return  
+
+def split(alf, removeSrc):
+# Split an ALF by hostname
+    print("-s is not yet implemented.")
+    return
+
+#################################################
+# I/O Functions
+#################################################
+
+def loadRawPage(filename):
+# Takes a file as output by eyeOfAndrew and turns it into a dictionary indexed
+# by a hostname and timestamp. Each entry is a dictionary containing an entry
+# for each column of w's output with the exception of program arguments, which
+# become their own entry, args
+    pageDict = dict()
+    page = open(filename, "r")
+    
+    for line in page:
+        entry = lineFilter(line)
+        # Hostname and date are first line
+        if len(entry) == 1:
+            # Ignore blank lines
+            if entry[0] == '':
+                pass
+            else:
+                host = entry[0].split('-')[0]
+                date = entry[0].split('-')[1]
+        # Time is in header line
+        elif entry[1] == "up":
+            time = entry[0]
+            index = 0
+        # Ignore the column labels
+        elif entry[0] == "USER":
+            pass
+        # Enter a normal line
+        else:
+            timeFilter(entry)
+            loadDict(pageDict, host, date, time, index, entry)
+            index += 1
+
+    page.close()
+    return pageDict
+
+def loadAlf(filename):
+# Takes an ALF and from it creates the same internal representation as does
+# loadRawPage
+    pageDict = dict()
+    alf = open(filename, "r")
+    
+    for line in alf:
+        entry = lineFilter(line)
+        if len(entry) == 1:
+            if entry[0] == '':
+                pass
+            else:
+                host = entry[0]
+        elif len(entry) == 2:
+            date = entry[0]
+            time = entry[1]
+            index = 0
+        else:
+            loadDict(pageDict, host, date, time, index, entry)
+            index += 1
+
+    alf.close()
+    return pageDict
+
+def writeAlf(filename, database):
+# Takes a dictionary as decribed in loadRawPage and from it creates a valid ALF
+    alf = open(filename, "w")
+    for host in database:
+        alf.write("%s\n" % host)
+        for date in database[host]:
+            for time in database[host][date]:
+                alf.write("%s %s\n" % (date, time))
+                for index in database[host][date][time]:
+                    entry = database[host][date][time][index]
+                    alf.write(lineWrite(entry))
+                alf.write("\n")
+        alf.write("\n\n")
+    alf.close()
+                    
+def lineFilter(l):
+# Breaks a string at whitespace, removing the newline character
+    strip = lambda s : s if s[-1] != '\n' else s[:-1]
+    return [strip(e) for e in l.split(' ') if e != '']
+    
+def timeFilter(l):
+# Filters out redundant 's' and 'm' from times in a line
+    for n in range(4, 7):   
+        if not l[n][-1] in string.digits:
+            l[n] = l[n][:-1]
+
+def loadDict(pageDict, host, date, time, index, entry):
+# Loads the given page's, host's, and time's entry into its dictionary
+    if not host in pageDict:
+        pageDict[host] = dict()
+    if not date in pageDict[host]:
+        pageDict[host][date] = dict()
+    if not time in pageDict[host][date]:
+        pageDict[host][date][time] = dict()
+    if not index in pageDict[host][date][time]:
+        pageDict[host][date][time][index] = dict()
+    
+    pageDict[host][date][time][index]["user"] = entry[0]
+    pageDict[host][date][time][index]["tty"] = entry[1]
+    pageDict[host][date][time][index]["from"] = entry[2]
+    pageDict[host][date][time][index]["login"] = entry[3]
+    pageDict[host][date][time][index]["idle"] = entry[4]
+    pageDict[host][date][time][index]["jcpu"] = entry[5]
+    pageDict[host][date][time][index]["pcpu"] = entry[6]
+    pageDict[host][date][time][index]["prog"] = entry[7]
+    if len(entry) > 8:
+        pageDict[host][date][time][index]["args"] = entry[8:]
+    else:
+        pageDict[host][date][time][index]["args"] = ""
+
+def lineWrite(entry):
+# Returns the ALF-complient string corresponding to the given entry
+    preLine = "%-8s   %-6s   %-16s   %5s   %5s   %5s   %5s   %s" % (
+              entry["user"], entry["tty"], entry["from"], entry["login"],
+              entry["idle"], entry["jcpu"], entry["pcpu"], entry["prog"])
+
+    args = ""
+    for arg in entry["args"]:
+        args += (" " + arg)
+
+    return preLine + args + "\n"
+
+# Run the program  
+if __name__=="__main__":
+    main()
