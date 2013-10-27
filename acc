@@ -16,56 +16,60 @@
 import os
 import argparse
 import string
+import mongoDriver
 
 def main():
     # Parse the command line arguments
     parser = argparse.ArgumentParser(description="Andrew Control Center")
     parser.add_argument("-c", nargs=5, help="Collect data")
+    parser.add_argument("--mongo", action="store_true", help="Export to Mongo")
     parser.add_argument("-m", nargs='+', help="Merge ALFs")
     parser.add_argument("-s", nargs=1, help="Split an ALF")
-    parser.add_argument("-r", action='store_true',
+    parser.add_argument("-r", action='store_true', default=True,
                         help="Remove source/temp files")
-    parser.add_argument("-o", nargs=1, default=['out.alf'], 
+    parser.add_argument("-o", nargs=1, default=['out.alf'],
                         help="Set output file")
 
     args = (parser.parse_args())
-    
+
     if not args.c == None:
-        collect(args.c[0], args.c[1], args.c[2], args.c[3], args.c[4], 
-                args.o[0], args.r)
+        collect(args.c[0], args.c[1], args.c[2], args.c[3], args.c[4],
+                args.o[0], args.r, args.mongo)
 
     if not args.m == None:
         merge(args.m, args.o[0], args.r)
 
     if not args.s == None:
         split(args.s, agrs.r)
-    
+
     return 0
 
 #################################################
 # Functions for command line arguments
 #################################################
 
-def collect(user, hostfile, iters, sleep, eoaPath, outfile, removeTmp):
+def collect(user, hostfile, reps, sleep, eoaPath, outfile, removeTmp, useMongo):
     # Count the hosts to have an appropriate connection limit
     numHosts = 0
-    hosts = open(hostfile, "r")
-    for host in hosts:
-        numHosts += 1
-    hosts.close()
+    with open(hostfile, "r") as hosts:
+        numHosts = len([1 for _ in hosts])
 
     # Form and run the pssh command
-    command = "pssh -l %s -h %s -o acc_tmp -A -p %d -t %d %s %s %d %d" % (
-               user, hostfile, numHosts, int(iters) * int(sleep) + 10,
-               "\"-O StrictHostKeyChecking=no\"", eoaPath, int(iters), 
-               int(sleep))
+    command = ("pssh --user {0} --hosts {1} --outdir acc_tmp --askpass "
+               "--par {2} --timeout {3} --verbose "
+               "-OStrictHostKeyChecking=no {4} {5} {6}").format(
+               user, hostfile, numHosts, int(reps) * int(sleep) + 10,
+               eoaPath, int(reps), int(sleep)
+               )
     os.system(command)
-   
+
     # Process the data into an ALF
     database = dict()
     for rawOutput in os.listdir('acc_tmp'):
         database.update(loadRawPage('acc_tmp/' + rawOutput))
     writeAlf(outfile, database)
+    if useMongo:
+        mongoDriver.insert(database)
 
     # Remove temporary files
     if removeTmp:
@@ -83,7 +87,7 @@ def merge(alfList, outfile, removeSrc):
     if removeSrc:
         for alf in alfList:
             os.system("rm %s" % alf)
-    return  
+    return
 
 def split(alf, removeSrc):
 # Split an ALF by hostname
@@ -101,7 +105,7 @@ def loadRawPage(filename):
 # become their own entry, args
     pageDict = dict()
     page = open(filename, "r")
-    
+
     for line in page:
         entry = lineFilter(line)
         # Hostname and date are first line
@@ -133,7 +137,7 @@ def loadAlf(filename):
 # loadRawPage
     pageDict = dict()
     alf = open(filename, "r")
-    
+
     for line in alf:
         entry = lineFilter(line)
         if len(entry) == 1:
@@ -166,20 +170,21 @@ def writeAlf(filename, database):
                 alf.write("\n")
         alf.write("\n\n")
     alf.close()
-                    
+
 def lineFilter(l):
 # Breaks a string at whitespace, removing the newline character
-    strip = lambda s : s if s[-1] != '\n' else s[:-1]
+    strip = lambda s: s if s[-1] != '\n' else s[:-1]
     return [strip(e) for e in l.split(' ') if e != '']
-    
+
 def timeFilter(l):
 # Filters out redundant 's' and 'm' from times in a line
-    for n in range(4, 7):   
+    for n in range(4, 7):
         if not l[n][-1] in string.digits:
             l[n] = l[n][:-1]
 
 def loadDict(pageDict, host, date, time, index, entry):
 # Loads the given page's, host's, and time's entry into its dictionary
+    index = str(index)  # Makes mongo happy
     if not host in pageDict:
         pageDict[host] = dict()
     if not date in pageDict[host]:
@@ -188,7 +193,7 @@ def loadDict(pageDict, host, date, time, index, entry):
         pageDict[host][date][time] = dict()
     if not index in pageDict[host][date][time]:
         pageDict[host][date][time][index] = dict()
-    
+
     pageDict[host][date][time][index]["user"] = entry[0]
     pageDict[host][date][time][index]["tty"] = entry[1]
     pageDict[host][date][time][index]["from"] = entry[2]
@@ -214,6 +219,6 @@ def lineWrite(entry):
 
     return preLine + args + "\n"
 
-# Run the program  
+# Run the program
 if __name__=="__main__":
     main()
