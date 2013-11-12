@@ -16,7 +16,10 @@
 import os
 import argparse
 import string
+import getpass
+import sys
 import mongoDriver
+import pyexpect
 
 def main():
     # Parse the command line arguments
@@ -54,27 +57,31 @@ def collect(user, hostfile, reps, sleep, eoaPath, outfile, removeTmp, useMongo):
     with open(hostfile, "r") as hosts:
         numHosts = len([1 for _ in hosts])
 
-    # Form and run the pssh command
-    command = ("pssh --user {0} --hosts {1} --outdir acc_tmp --askpass "
-               "--par {2} --timeout {3} --verbose "
-               "-OStrictHostKeyChecking=no {4} {5} {6}").format(
-               user, hostfile, numHosts, int(reps) * int(sleep) + 10,
-               eoaPath, int(reps), int(sleep)
-               )
-    os.system(command)
+    password = getpass.getpass(prompt="Password: ");
 
-    # Process the data into an ALF
-    database = dict()
-    for rawOutput in os.listdir('acc_tmp'):
-        database.update(loadRawPage('acc_tmp/' + rawOutput))
-    writeAlf(outfile, database)
-    if useMongo:
-        mongoDriver.insert(database)
+    for i in xrange(reps):
+        # Form and run the pssh command
+        command = ("pssh --user {0} --hosts {1} --outdir acc_tmp --askpass "
+                   "--par {2} --timeout {3} --verbose "
+                   "-OStrictHostKeyChecking=no {4} {5} {6}").format(
+                   user, hostfile, numHosts, int(reps) * int(sleep) + 10,
+                   eoaPath, int(reps), int(sleep)
+                   )
+        child = pexpect.spawn(command)
+        child.expect('Password:')
+        child.sendline(password)
+        child.logfile = sys.stdout
 
-    # Remove temporary files
-    if removeTmp:
-        os.system("rm -r acc_tmp")
-    return
+        # Process the data into an ALF
+        database = dict()
+        for rawOutput in os.listdir('acc_tmp'):
+            database.update(loadRawPage('acc_tmp/' + rawOutput))
+        writeAlf(outfile, database)
+        if useMongo:
+            mongoDriver.insert(database)
+        # Remove temporary files
+        if removeTmp:
+            os.system("rm -r acc_tmp")
 
 def merge(alfList, outfile, removeSrc):
 # Merge a list of ALFs
