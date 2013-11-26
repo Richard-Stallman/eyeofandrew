@@ -19,7 +19,7 @@ import string
 import getpass
 import sys
 import mongoDriver
-import pyexpect
+import pexpect
 
 def main():
     # Parse the command line arguments
@@ -57,31 +57,41 @@ def collect(user, hostfile, reps, sleep, eoaPath, outfile, removeTmp, useMongo):
     with open(hostfile, "r") as hosts:
         numHosts = len([1 for _ in hosts])
 
+    sleep = int(sleep)
+    reps = int(reps)
+    timeout = min(reps * sleep + 10, 310)
+
     password = getpass.getpass(prompt="Password: ");
 
-    for i in xrange(reps):
+    for i in range(int(reps)):
         # Form and run the pssh command
+        # Longest run with a continuous connection should be 3 minutes
         command = ("pssh --user {0} --hosts {1} --outdir acc_tmp --askpass "
                    "--par {2} --timeout {3} --verbose "
                    "-OStrictHostKeyChecking=no {4} {5} {6}").format(
-                   user, hostfile, numHosts, int(reps) * int(sleep) + 10,
-                   eoaPath, int(reps), int(sleep)
+                       user, hostfile, numHosts, timeout, eoaPath, timeout // sleep, sleep
                    )
         child = pexpect.spawn(command)
-        child.expect('Password:')
-        child.sendline(password)
         child.logfile = sys.stdout
+        child.logfile_send = None
+        child.setecho(False)
+        child.expect('Password: ')
+        child.sendline(password)
+        child.wait()
 
         # Process the data into an ALF
-        database = dict()
-        for rawOutput in os.listdir('acc_tmp'):
-            database.update(loadRawPage('acc_tmp/' + rawOutput))
-        writeAlf(outfile, database)
-        if useMongo:
-            mongoDriver.insert(database)
-        # Remove temporary files
-        if removeTmp:
-            os.system("rm -r acc_tmp")
+        try:
+            database = dict()
+            for rawOutput in os.listdir('acc_tmp'):
+                database.update(loadRawPage('acc_tmp/' + rawOutput))
+            writeAlf(outfile, database)
+            if useMongo:
+                mongoDriver.insert(database)
+            # Remove temporary files
+            if removeTmp:
+                os.system("rm -r acc_tmp")
+        except Exception as e:
+            print("Error: {0}".format(e))
 
 def merge(alfList, outfile, removeSrc):
 # Merge a list of ALFs
@@ -93,7 +103,7 @@ def merge(alfList, outfile, removeSrc):
 
     if removeSrc:
         for alf in alfList:
-            os.system("rm %s" % alf)
+            os.system("rm {}".format(alf))
     return
 
 def split(alf, removeSrc):
@@ -112,6 +122,7 @@ def loadRawPage(filename):
 # become their own entry, args
     pageDict = dict()
     page = open(filename, "r")
+    time = 0
 
     for line in page:
         entry = lineFilter(line)
@@ -186,8 +197,12 @@ def lineFilter(l):
 def timeFilter(l):
 # Filters out redundant 's' and 'm' from times in a line
     for n in range(4, 7):
-        if not l[n][-1] in string.digits:
-            l[n] = l[n][:-1]
+        try:
+            if not l[n][-1] in string.digits:
+                l[n] = l[n][:-1]
+        except:
+            print("timeFilter error with line `{}` at `{}`".format(l, n))
+            pass
 
 def loadDict(pageDict, host, date, time, index, entry):
 # Loads the given page's, host's, and time's entry into its dictionary
