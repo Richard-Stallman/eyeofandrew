@@ -1,5 +1,9 @@
 from pymongo import MongoClient
 from datetime import datetime, timedelta
+import matplotlib
+matplotlib.use('PNG')
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 
 def insert(data):
     mData = mongoFormat(data)
@@ -81,13 +85,14 @@ class SlowData:
 
 class Visualization:
     def __init__(self):
-        SD = SlowData()
-        self.queryTimes = SD.queryTimes()
-        self.machines = SD.machines()
+        self.queryTimes = None
+        self.machines = None
         self.query = Query()
         self.countedHosts = self.hostCount()
 
     def hostCount(self):
+        if self.queryTimes is None:
+            self.queryTimes = SlowData().queryTimes()
         result = dict()
         for time in self.queryTimes:
             self.query.build({"time":time})
@@ -100,4 +105,26 @@ class Visualization:
         return result
 
     def hostData(self, host):
-        return dict((k, v[host]) if host in v else (k,0) for k,v in self.countedHosts.items())
+        print("Drawing graph for {}".format(host))
+        result = dict((k, v[host]) if host in v else (k,0) for k,v in self.countedHosts.items())
+        fig = plt.gcf()
+        fig.set_size_inches(200,10)
+        plt.ion()
+        for k,v in result.items():
+            plt.plot(k, v, "ro")
+            formatter = DateFormatter('%H:%M %b %d')
+        plt.gca().xaxis.set_major_locator(matplotlib.dates.HourLocator())
+        plt.gcf().axes[0].xaxis.set_major_formatter(formatter)
+        plt.gcf().autofmt_xdate()
+        plt.title("Simultaneous users of {} over time".format(host))
+        plt.xlabel("Time")
+        plt.ylabel("Number of Users")
+        plt.grid(True)
+        plt.savefig("users/{}".format(host.split(".")[0]), bbox_inches="tight")
+        plt.clf()
+
+    def hostCountVisualize(self):
+        if self.machines is None:
+            self.machines = SlowData().machines()
+        for machine in self.machines:
+            self.hostData(machine)
