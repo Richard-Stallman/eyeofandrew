@@ -1,9 +1,11 @@
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 import matplotlib
-matplotlib.use('PNG')
+matplotlib.use('SVG')
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
+from mpl_toolkits.mplot3d.axes3d import Axes3D
+from pprint import pprint
 
 def insert(data):
     mData = mongoFormat(data)
@@ -53,6 +55,7 @@ class Query:
     def count(self):
         return self.execute().count()
 
+
 class QueryData:
     # Takes prefix of the desired computer
     def host(self, name):
@@ -69,6 +72,7 @@ class QueryData:
     def prog(self, prog):
         return {"prog": prog}
 
+
 class SlowData:
     def __init__(self):
         self.db = MongoClient()["eyeofandrew"]["all"]
@@ -83,12 +87,19 @@ class SlowData:
     def machines(self):
         return self.db.find(None, {"host":1}).distinct("host")
 
+    # Return a list of unique program names
+    def programs(self):
+        return self.db.find(None, {"prog":1}).distinct("prog")
+
+
 class Visualization:
     def __init__(self):
         self.queryTimes = None
         self.machines = None
+        self.programs = None
         self.query = Query()
-        self.countedHosts = self.hostCount()
+        self.countedHosts = None
+        self.countedPrograms = None
 
     def hostCount(self):
         if self.queryTimes is None:
@@ -104,15 +115,25 @@ class Visualization:
             result[time] = counter
         return result
 
-    def hostData(self, host):
+    def programCount(self):
+        if self.programs is None:
+            self.programs = SlowData().programs()
+        counter = dict()
+        for prog in self.programs:
+            self.query.build({"prog": prog})
+            counter[prog] = self.query.count()
+        return counter
+
+    def hostCountOutput(self, host):
+        if self.countedHosts is None:
+            self.countedHosts = self.hostCount()
         print("Drawing graph for {}".format(host))
         result = dict((k, v[host]) if host in v else (k,0) for k,v in self.countedHosts.items())
         fig = plt.gcf()
         fig.set_size_inches(200,10)
         plt.ion()
-        for k,v in result.items():
-            plt.plot(k, v, "ro")
-            formatter = DateFormatter('%H:%M %b %d')
+        plt.plot([k for k,_ in result.items()], [v for _,v in result.items()], "ro")
+        formatter = DateFormatter('%H:%M %b %d')
         plt.gca().xaxis.set_major_locator(matplotlib.dates.HourLocator())
         plt.gcf().axes[0].xaxis.set_major_formatter(formatter)
         plt.gcf().autofmt_xdate()
@@ -127,4 +148,19 @@ class Visualization:
         if self.machines is None:
             self.machines = SlowData().machines()
         for machine in self.machines:
-            self.hostData(machine)
+            self.hostCountOutput(machine)
+
+    def programCountVisualize(self):
+        if self.countedPrograms is None:
+            self.countedPrograms = self.programCount()
+        fig = plt.gcf()
+        fig.set_size_inches(200, 200)
+        plt.ion()
+        progData = sorted(self.countedPrograms.items(), key=lambda x: x[1], reverse=True)
+        progData = progData[:40]
+        labels = [x for (x,_) in progData]
+        counts = [x for (_,x) in progData]
+        plt.pie(counts, labels=labels, autopct=lambda p: '{:.2f}%'.format(p), pctdistance=.9)
+        plt.title("Most popular programs run on the CMU servers")
+        plt.savefig("prog/count", bbox_inches="tight")
+        plt.clf()
