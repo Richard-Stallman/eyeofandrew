@@ -4,8 +4,10 @@ import matplotlib
 matplotlib.use('SVG')
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
+from matplotlib.ticker import FuncFormatter
 from mpl_toolkits.mplot3d.axes3d import Axes3D
 from pprint import pprint
+import numpy as np
 
 def insert(data):
     mData = mongoFormat(data)
@@ -128,25 +130,34 @@ class Visualization:
         if self.countedHosts is None:
             self.countedHosts = self.hostCount()
         print("Drawing graph for {}".format(host))
-        result = dict((k, v[host]) if host in v else (k,0) for k,v in self.countedHosts.items())
+        if host is None:
+            result = dict((k, sum(v.values())) for k,v in self.countedHosts.items())
+        else:
+            result = dict((k, v[host]) if host in v else (k,0) for k,v in self.countedHosts.items())
         fig = plt.gcf()
         fig.set_size_inches(200,10)
         plt.ion()
         plt.plot([k for k,_ in result.items()], [v for _,v in result.items()], "ro")
         formatter = DateFormatter('%H:%M %b %d')
         plt.gca().xaxis.set_major_locator(matplotlib.dates.HourLocator())
-        plt.gcf().axes[0].xaxis.set_major_formatter(formatter)
-        plt.gcf().autofmt_xdate()
-        plt.title("Simultaneous users of {} over time".format(host))
+        fig.axes[0].xaxis.set_major_formatter(formatter)
+        fig.autofmt_xdate()
+        if host is None:
+            plt.title("Simultaneous users of all CMU servers over time")
+        else:
+            plt.title("Simultaneous users of {} over time".format(host))
         plt.xlabel("Time")
         plt.ylabel("Number of Users")
         plt.grid(True)
+        if host is None:
+            host = "combined"
         plt.savefig("users/{}".format(host.split(".")[0]), bbox_inches="tight")
         plt.clf()
 
     def hostCountVisualize(self):
         if self.machines is None:
             self.machines = SlowData().machines()
+        self.hostCountOutput(None)
         for machine in self.machines:
             self.hostCountOutput(machine)
 
@@ -154,13 +165,28 @@ class Visualization:
         if self.countedPrograms is None:
             self.countedPrograms = self.programCount()
         fig = plt.gcf()
-        fig.set_size_inches(200, 200)
+        fig.set_size_inches(200, 30)
         plt.ion()
         progData = sorted(self.countedPrograms.items(), key=lambda x: x[1], reverse=True)
-        progData = progData[:40]
+        progData = progData[:150]
         labels = [x for (x,_) in progData]
         counts = [x for (_,x) in progData]
-        plt.pie(counts, labels=labels, autopct=lambda p: '{:.2f}%'.format(p), pctdistance=.9)
+        divisor = sum(counts)
+        percents = [x/divisor for x in counts]
+        pos = np.arange(len(labels)) + 1
+        plt.xticks(pos, labels, rotation=17)
+        bars = plt.bar(pos, percents, align="center", width=0.8)
+        def autolabel(rects):
+            for rect in rects:
+                height = rect.get_height()
+                plt.text(rect.get_x()+rect.get_width()/2., 1.05*height, "{:.4f}%".format(height * 100), ha='center', va='bottom')
+        autolabel(bars)
+        def PercentFormatter(x, pos=0):
+            return "%1.2f%%" % (100*x)
+        fig.axes[0].yaxis.set_major_formatter(FuncFormatter(PercentFormatter))
         plt.title("Most popular programs run on the CMU servers")
+        plt.xlabel("Program")
+        plt.ylabel("Usage (percent)")
+        plt.grid(True)
         plt.savefig("prog/count", bbox_inches="tight")
         plt.clf()
